@@ -15,7 +15,10 @@ from pydantic import BaseModel
 
 from app.agent.architect import generate_program
 from app.agent.schema import AgentOutputError
-from app.models import Boundary, RoomRequest
+from app.engine.pipeline import build_floor_plan, resize_room
+from app.engine.slicing import InfeasibleLayout
+from app.engine.validate import ValidationError as EngineValidationError
+from app.models import Boundary, FloorPlan, Program, RoomRequest
 from app.program import check_program
 from app.rules.defaults import catalog_for_palette
 
@@ -81,7 +84,7 @@ def program_check(req: _ProgramCheckRequest) -> dict[str, Any]:
 def program_generate(req: _ProgramCheckRequest) -> dict[str, Any]:
     """Run the architect agent and return the validated program.
 
-    Geometry-free. Step 4 will consume this to drive the engine.
+    Geometry-free. See /api/generate for the full plan.
     """
     check = check_program(req.boundary, req.rooms)
     if not check.ok:
@@ -98,5 +101,71 @@ def program_generate(req: _ProgramCheckRequest) -> dict[str, Any]:
         "summary": {
             "boundary_area_m2": check.summary.boundary_area_m2,
             "usable_area_m2": check.summary.usable_area_m2,
+        },
+    }
+
+
+class _GenerateRequest(BaseModel):
+    boundary: Boundary
+    rooms: list[RoomRequest]
+    seed: int | None = None
+
+
+@app.post("/api/generate")
+def generate_plan(req: _GenerateRequest) -> dict[str, Any]:
+    """Full pipeline: program (agent) -> annealed layout -> finished plan."""
+    check = check_program(req.boundary, req.rooms)
+    if not check.ok:
+        raise HTTPException(status_code=400, detail={"errors": check.errors})
+    try:
+        program = generate_program(req.boundary, req.rooms)
+        plan, diag = build_floor_plan(req.boundary, program, seed=req.seed)
+    except AgentOutputError as e:
+        raise HTTPException(status_code=502, detail=f"agent: {e}") from e
+    except InfeasibleLayout as e:
+        raise HTTPException(status_code=400, detail=f"layout: {e}") from e
+    except EngineValidationError as e:
+        raise HTTPException(status_code=500, detail=f"engine: {e}") from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    return {
+        "plan": plan.model_dump(),
+        "program": program.model_dump(by_alias=True),
+        "diagnostics": {
+            "cost": diag.cost,
+            "iterations": diag.iterations,
+            "accepted": diag.accepted,
+            "restarts": diag.restarts,
+            "breakdown": diag.breakdown.to_dict(),
+        },
+    }
+
+
+class _ResizeRequest(BaseModel):
+    plan: FloorPlan
+    program: Program
+    room_id: str
+    new_target_area_m2: float
+
+
+@app.post("/api/resize")
+def resize_plan(req: _ResizeRequest) -> dict[str, Any]:
+    try:
+        plan, diag = resize_room(
+            req.plan, req.program, req.room_id, req.new_target_area_m2
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except InfeasibleLayout as e:
+        raise HTTPException(status_code=400, detail=f"layout: {e}") from e
+
+    return {
+        "plan": plan.model_dump(),
+        "diagnostics": {
+            "cost": diag.cost,
+            "iterations": diag.iterations,
+            "accepted": diag.accepted,
+            "restarts": diag.restarts,
         },
     }

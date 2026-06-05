@@ -61,3 +61,29 @@ def test_program_check_overflow_errors():
     body = r.json()
     assert body["ok"] is False
     assert any("exceed" in e for e in body["errors"])
+
+
+def test_generate_full_pipeline(monkeypatch):
+    """Round-trip through /api/generate produces a valid floor plan."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    payload = {
+        "boundary": {"width_mm": 12000, "depth_mm": 10000, "units_display": "metric"},
+        "rooms": [
+            {"type": "foyer", "count": 1},
+            {"type": "living_room", "count": 1},
+            {"type": "kitchen", "count": 1},
+            {"type": "primary_bedroom", "count": 1},
+            {"type": "bedroom", "count": 1},
+            {"type": "full_bath", "count": 1},
+        ],
+        "seed": 7,
+    }
+    r = client.post("/api/generate", json=payload)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    plan = body["plan"]
+    assert len(plan["rooms"]) == 6
+    assert plan["walls"], "walls missing"
+    assert plan["openings"], "openings missing"
+    assert body["diagnostics"]["iterations"] > 0
+    assert "weighted_total" in body["diagnostics"]["breakdown"]
