@@ -41,3 +41,39 @@ export async function checkProgram(
     body: JSON.stringify({ boundary, rooms }),
   });
 }
+
+// Program (no geometry) emitted by the architect agent. The full Program type
+// will live alongside the engine's FloorPlan once Step 4 lands.
+export type AgentProgram = {
+  units: "mm";
+  global: {
+    circulation_target_pct: number;
+    group_wet_rooms: boolean;
+    primary_entry_side: "north" | "south" | "east" | "west";
+  };
+  rooms: {
+    id: string;
+    type: string;
+    label: string;
+    zone: "public" | "private" | "service" | "exterior";
+    target_area_m2: number;
+    min_width_m: number;
+    priority: number;
+    needs_exterior_wall: boolean;
+    needs_window: boolean;
+    needs_egress: boolean;
+    adjacent_to: string[];
+    not_adjacent_to: string[];
+  }[];
+  circulation: { entry_room_id: string; notes: string };
+};
+
+export async function generateProgram(
+  boundary: Boundary,
+  rooms: RoomRequest[],
+): Promise<{ program: AgentProgram; summary: { boundary_area_m2: number; usable_area_m2: number } }> {
+  return jsonFetch("/api/program/generate", {
+    method: "POST",
+    body: JSON.stringify({ boundary, rooms }),
+  });
+}

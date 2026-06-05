@@ -9,10 +9,12 @@ import logging
 import os
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from app.agent.architect import generate_program
+from app.agent.schema import AgentOutputError
 from app.models import Boundary, RoomRequest
 from app.program import check_program
 from app.rules.defaults import catalog_for_palette
@@ -71,5 +73,30 @@ def program_check(req: _ProgramCheckRequest) -> dict[str, Any]:
             "min_required_m2": s.min_required_m2,
             "target_total_m2": s.target_total_m2,
             "rooms_expanded": s.rooms_expanded,
+        },
+    }
+
+
+@app.post("/api/program/generate")
+def program_generate(req: _ProgramCheckRequest) -> dict[str, Any]:
+    """Run the architect agent and return the validated program.
+
+    Geometry-free. Step 4 will consume this to drive the engine.
+    """
+    check = check_program(req.boundary, req.rooms)
+    if not check.ok:
+        raise HTTPException(status_code=400, detail={"errors": check.errors})
+    try:
+        program = generate_program(req.boundary, req.rooms)
+    except AgentOutputError as e:
+        raise HTTPException(status_code=502, detail=f"agent: {e}") from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    return {
+        "program": program.model_dump(by_alias=True),
+        "summary": {
+            "boundary_area_m2": check.summary.boundary_area_m2,
+            "usable_area_m2": check.summary.usable_area_m2,
         },
     }

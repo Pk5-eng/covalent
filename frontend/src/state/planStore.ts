@@ -5,7 +5,12 @@ import type {
   ProgramCheckResponse,
   RoomRequest,
 } from "../lib/model";
-import { checkProgram, getCatalog } from "../lib/api";
+import {
+  type AgentProgram,
+  checkProgram,
+  generateProgram,
+  getCatalog,
+} from "../lib/api";
 
 type Status = "idle" | "loading" | "ready" | "error";
 
@@ -18,12 +23,17 @@ type PlanState = {
   checking: boolean;
   lastError: string | null;
 
+  program: AgentProgram | null;
+  generating: boolean;
+  generateError: string | null;
+
   loadCatalog: () => Promise<void>;
   setBoundary: (b: Partial<Boundary>) => void;
   setRoomCount: (type: string, count: number) => void;
   incRoom: (type: string, delta: number, max: number) => void;
   resetRooms: () => void;
   runCheck: () => Promise<void>;
+  runGenerate: () => Promise<void>;
 };
 
 const initialBoundary: Boundary = {
@@ -46,6 +56,10 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   check: null,
   checking: false,
   lastError: null,
+
+  program: null,
+  generating: false,
+  generateError: null,
 
   loadCatalog: async () => {
     set({ catalogStatus: "loading" });
@@ -74,7 +88,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     get().setRoomCount(type, next);
   },
 
-  resetRooms: () => set({ rooms: {}, check: null }),
+  resetRooms: () => set({ rooms: {}, check: null, program: null, generateError: null }),
 
   runCheck: async () => {
     set({ checking: true, lastError: null });
@@ -88,6 +102,18 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       set({ check: result, checking: false });
     } catch (e) {
       set({ checking: false, lastError: (e as Error).message });
+    }
+  },
+
+  runGenerate: async () => {
+    const list = roomsList(get().rooms);
+    if (list.length === 0) return;
+    set({ generating: true, generateError: null, program: null });
+    try {
+      const result = await generateProgram(get().boundary, list);
+      set({ program: result.program, generating: false });
+    } catch (e) {
+      set({ generating: false, generateError: (e as Error).message });
     }
   },
 }));
