@@ -11,6 +11,11 @@ from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+from app.models import Boundary, RoomRequest
+from app.program import check_program
+from app.rules.defaults import catalog_for_palette
 
 logger = logging.getLogger("covalent")
 logging.basicConfig(level=os.environ.get("COVALENT_LOG", "INFO"))
@@ -38,3 +43,33 @@ def health() -> dict[str, Any]:
 @app.get("/api/echo")
 def echo(message: str = "hello from covalent") -> dict[str, Any]:
     return {"echo": message}
+
+
+@app.get("/api/catalog")
+def catalog() -> dict[str, Any]:
+    """Room catalog for the palette (Section 7)."""
+    return {"rooms": catalog_for_palette()}
+
+
+class _ProgramCheckRequest(BaseModel):
+    boundary: Boundary
+    rooms: list[RoomRequest]
+
+
+@app.post("/api/program/check")
+def program_check(req: _ProgramCheckRequest) -> dict[str, Any]:
+    """Validate a boundary + room selection. Returns warnings + errors + area tally."""
+    result = check_program(req.boundary, req.rooms)
+    s = result.summary
+    return {
+        "ok": result.ok,
+        "warnings": result.warnings,
+        "errors": result.errors,
+        "summary": {
+            "boundary_area_m2": s.boundary_area_m2,
+            "usable_area_m2": s.usable_area_m2,
+            "min_required_m2": s.min_required_m2,
+            "target_total_m2": s.target_total_m2,
+            "rooms_expanded": s.rooms_expanded,
+        },
+    }
