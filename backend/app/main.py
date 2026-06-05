@@ -9,8 +9,11 @@ import logging
 import os
 from typing import Any
 
+import io
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.agent.architect import generate_program
@@ -18,6 +21,7 @@ from app.agent.schema import AgentOutputError
 from app.engine.pipeline import build_floor_plan, resize_room
 from app.engine.slicing import InfeasibleLayout
 from app.engine.validate import ValidationError as EngineValidationError
+from app.export.dxf_export import floor_plan_to_dxf
 from app.models import Boundary, FloorPlan, Program, RoomRequest
 from app.program import check_program
 from app.rules.defaults import catalog_for_palette
@@ -169,3 +173,19 @@ def resize_plan(req: _ResizeRequest) -> dict[str, Any]:
             "restarts": diag.restarts,
         },
     }
+
+
+@app.post("/api/export/dxf")
+def export_dxf(plan: FloorPlan) -> StreamingResponse:
+    """Write the floor plan to DXF (R2018, NCS layers, real DIMENSION entities)."""
+    buf = io.BytesIO()
+    try:
+        floor_plan_to_dxf(plan, buf)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DXF export failed: {e}") from e
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/dxf",
+        headers={"Content-Disposition": 'attachment; filename="covalent_plan.dxf"'},
+    )

@@ -2,14 +2,17 @@ import { create } from "zustand";
 import type {
   Boundary,
   CatalogRoom,
+  FloorPlan,
   ProgramCheckResponse,
   RoomRequest,
 } from "../lib/model";
 import {
   type AgentProgram,
+  type Diagnostics,
   checkProgram,
-  generateProgram,
+  generatePlan,
   getCatalog,
+  resizePlan,
 } from "../lib/api";
 
 type Status = "idle" | "loading" | "ready" | "error";
@@ -24,8 +27,11 @@ type PlanState = {
   lastError: string | null;
 
   program: AgentProgram | null;
+  plan: FloorPlan | null;
+  diagnostics: Diagnostics | null;
   generating: boolean;
   generateError: string | null;
+  seedCounter: number;
 
   loadCatalog: () => Promise<void>;
   setBoundary: (b: Partial<Boundary>) => void;
@@ -34,6 +40,7 @@ type PlanState = {
   resetRooms: () => void;
   runCheck: () => Promise<void>;
   runGenerate: () => Promise<void>;
+  runResize: (roomId: string, newTargetAreaM2: number) => Promise<void>;
 };
 
 const initialBoundary: Boundary = {
@@ -58,8 +65,11 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   lastError: null,
 
   program: null,
+  plan: null,
+  diagnostics: null,
   generating: false,
   generateError: null,
+  seedCounter: 1,
 
   loadCatalog: async () => {
     set({ catalogStatus: "loading" });
@@ -88,7 +98,15 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     get().setRoomCount(type, next);
   },
 
-  resetRooms: () => set({ rooms: {}, check: null, program: null, generateError: null }),
+  resetRooms: () =>
+    set({
+      rooms: {},
+      check: null,
+      program: null,
+      plan: null,
+      diagnostics: null,
+      generateError: null,
+    }),
 
   runCheck: async () => {
     set({ checking: true, lastError: null });
@@ -108,10 +126,29 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   runGenerate: async () => {
     const list = roomsList(get().rooms);
     if (list.length === 0) return;
-    set({ generating: true, generateError: null, program: null });
+    const seed = get().seedCounter;
+    set({ generating: true, generateError: null });
     try {
-      const result = await generateProgram(get().boundary, list);
-      set({ program: result.program, generating: false });
+      const result = await generatePlan(get().boundary, list, seed);
+      set({
+        program: result.program,
+        plan: result.plan,
+        diagnostics: result.diagnostics,
+        generating: false,
+        seedCounter: seed + 1,
+      });
+    } catch (e) {
+      set({ generating: false, generateError: (e as Error).message });
+    }
+  },
+
+  runResize: async (roomId, newTargetAreaM2) => {
+    const { plan, program } = get();
+    if (!plan || !program) return;
+    set({ generating: true, generateError: null });
+    try {
+      const result = await resizePlan(plan, program, roomId, newTargetAreaM2);
+      set({ plan: result.plan, diagnostics: result.diagnostics, generating: false });
     } catch (e) {
       set({ generating: false, generateError: (e as Error).message });
     }

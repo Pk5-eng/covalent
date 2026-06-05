@@ -94,6 +94,9 @@ def _snap_rect(rect: Rect, boundary: Boundary, snap: float) -> Rect:
 def program_to_rows(program_rooms: list) -> list[dict]:
     """Coerce either a `Program.rooms` list (pydantic) or list of dicts into
     the dict shape used by the engine helpers.
+
+    Adjacency lists must be carried through — the finishing pass uses them
+    to decide where doors go.
     """
     out = []
     for r in program_rooms:
@@ -112,6 +115,8 @@ def program_to_rows(program_rooms: list) -> list[dict]:
                     "needs_egress": r.needs_egress,
                     "needs_exterior_wall": r.needs_exterior_wall,
                     "min_area_m2": r.target_area_m2,
+                    "adjacent_to": list(r.adjacent_to),
+                    "not_adjacent_to": list(r.not_adjacent_to),
                 }
             )
     return out

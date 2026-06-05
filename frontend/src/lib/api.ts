@@ -1,6 +1,7 @@
 import type {
   Boundary,
   CatalogRoom,
+  FloorPlan,
   ProgramCheckResponse,
   RoomRequest,
 } from "./model";
@@ -75,5 +76,47 @@ export async function generateProgram(
   return jsonFetch("/api/program/generate", {
     method: "POST",
     body: JSON.stringify({ boundary, rooms }),
+  });
+}
+
+export type Diagnostics = {
+  cost: number;
+  iterations: number;
+  accepted: number;
+  restarts: number;
+  breakdown?: Record<string, unknown>;
+};
+
+export type GenerateResponse = {
+  plan: FloorPlan;
+  program: AgentProgram;
+  diagnostics: Diagnostics;
+};
+
+export async function generatePlan(
+  boundary: Boundary,
+  rooms: RoomRequest[],
+  seed?: number,
+): Promise<GenerateResponse> {
+  return jsonFetch("/api/generate", {
+    method: "POST",
+    body: JSON.stringify({ boundary, rooms, seed }),
+  });
+}
+
+export async function resizePlan(
+  plan: FloorPlan,
+  program: AgentProgram,
+  roomId: string,
+  newTargetAreaM2: number,
+): Promise<{ plan: FloorPlan; diagnostics: Diagnostics }> {
+  return jsonFetch("/api/resize", {
+    method: "POST",
+    body: JSON.stringify({
+      plan,
+      program,
+      room_id: roomId,
+      new_target_area_m2: newTargetAreaM2,
+    }),
   });
 }
