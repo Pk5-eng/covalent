@@ -24,6 +24,7 @@ class RoomSpec:
     needs_egress: bool
     needs_exterior_wall: bool = False
     max_count: int = 8  # palette stepper cap
+    bundle: tuple[str, ...] = ()  # if set, picking this expands into these component types
 
 
 # Section 7 catalog. Order matters for UI grouping.
@@ -46,9 +47,13 @@ ROOM_CATALOG: list[RoomSpec] = [
     RoomSpec("garage_double",  "Garage (double)",   "service", 36, 32,  5.5, False, False, needs_exterior_wall=True, max_count=1),
     RoomSpec("storage",        "Storage",           "service", 4,  1.5, 1.0, False, False, max_count=4),
     # private
-    RoomSpec("primary_bedroom","Primary Bedroom",   "private", 18, 12,  3.0, True,  True,  needs_exterior_wall=True, max_count=1),
-    RoomSpec("bedroom",        "Bedroom",           "private", 13, 10,  2.7, True,  True,  needs_exterior_wall=True, max_count=6),
-    RoomSpec("kids_room",      "Kids Room",         "private", 12, 9,   2.7, True,  True,  needs_exterior_wall=True, max_count=4),
+    RoomSpec("primary_suite",  "Primary Suite",     "private", 23, 15.5, 3.0, True,  True,  needs_exterior_wall=True, max_count=1, bundle=("primary_bedroom", "full_bath")),
+    RoomSpec("bedroom_suite",  "Bedroom Suite",     "private", 18, 13.5, 2.7, True,  True,  needs_exterior_wall=True, max_count=4, bundle=("bedroom", "full_bath")),
+    RoomSpec("kids_suite",     "Kids Suite",        "private", 17, 12.5, 2.7, True,  True,  needs_exterior_wall=True, max_count=2, bundle=("kids_room", "full_bath")),
+    RoomSpec("guest_suite",    "Guest Suite",       "private", 17, 12.5, 2.7, True,  True,  needs_exterior_wall=True, max_count=2, bundle=("guest_room", "full_bath")),
+    RoomSpec("primary_bedroom","Primary Bedroom",   "private", 18, 12,   3.0, True,  True,  needs_exterior_wall=True, max_count=1),
+    RoomSpec("bedroom",        "Bedroom",           "private", 13, 10,   2.7, True,  True,  needs_exterior_wall=True, max_count=6),
+    RoomSpec("kids_room",      "Kids Room",         "private", 12, 9,    2.7, True,  True,  needs_exterior_wall=True, max_count=4),
     RoomSpec("nursery",        "Nursery",           "private", 9,  7,   2.4, True,  True,  needs_exterior_wall=True, max_count=2),
     RoomSpec("study",          "Home Office",       "private", 10, 7,   2.4, True,  False, needs_exterior_wall=True, max_count=2),
     RoomSpec("guest_room",     "Guest Room",        "private", 12, 9,   2.7, True,  True,  needs_exterior_wall=True, max_count=2),
@@ -227,6 +232,7 @@ def catalog_for_palette() -> list[dict]:
             "needs_egress": r.needs_egress,
             "needs_exterior_wall": r.needs_exterior_wall,
             "max_count": r.max_count,
+            "bundle": list(r.bundle),
         }
         for r in ROOM_CATALOG
     ]

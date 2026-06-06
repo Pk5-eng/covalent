@@ -164,11 +164,30 @@ def _fallback_program(rooms_expanded: list[dict], usable_area_m2: float) -> Prog
     _apply_pair(by_type, rooms_payload, "bedroom", "living_room", adjacent=False)
     _apply_pair(by_type, rooms_payload, "primary_bedroom", "living_room", adjacent=False)
 
-    # Pair primary bedroom with the first full bath.
-    primaries = by_type.get("primary_bedroom", [])
-    baths = by_type.get("full_bath", [])
-    if primaries and baths:
-        _link(primaries[0], baths[0], adjacent=True)
+    # Pair suite members (suite_group set on the expanded rows). Each suite
+    # is bedroom-of-some-kind + ensuite full_bath; they must be adjacent.
+    suite_groups: dict[str, list[dict]] = {}
+    for r, expanded in zip(rooms_payload, rooms_expanded):
+        sg = expanded.get("suite_group")
+        if sg:
+            suite_groups.setdefault(sg, []).append(r)
+    for members in suite_groups.values():
+        for i in range(len(members)):
+            for j in range(i + 1, len(members)):
+                _link(members[i], members[j], adjacent=True)
+
+    # Also pair a standalone primary bedroom with the first standalone bath
+    # (only when there's no suite covering it).
+    standalone_primaries = [
+        r for r, e in zip(rooms_payload, rooms_expanded)
+        if r["type"] == "primary_bedroom" and not e.get("suite_group")
+    ]
+    standalone_baths = [
+        r for r, e in zip(rooms_payload, rooms_expanded)
+        if r["type"] == "full_bath" and not e.get("suite_group")
+    ]
+    if standalone_primaries and standalone_baths:
+        _link(standalone_primaries[0], standalone_baths[0], adjacent=True)
 
     # Cluster bedrooms together.
     bedrooms = (

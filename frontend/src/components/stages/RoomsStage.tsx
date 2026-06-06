@@ -167,6 +167,7 @@ function RoomRow({
   onChange: (delta: number) => void;
 }) {
   const flags: string[] = [];
+  if (room.bundle && room.bundle.length) flags.push("bedroom + ensuite");
   if (room.needs_window) flags.push("window");
   if (room.needs_egress) flags.push("egress");
   return (

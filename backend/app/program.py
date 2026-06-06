@@ -32,33 +32,69 @@ def usable_area_m2(boundary: Boundary, circulation_pct: int = CIRCULATION_TARGET
 def expand_room_requests(rooms: list[RoomRequest]) -> list[dict]:
     """Expand counts into per-instance entries with stable ids.
 
-    Labels only get a numeric suffix when the user picked more than one of
-    a type. A single living room is "Living Room", not "Living Room 1".
+    Handles suite bundles (e.g. "primary_suite" expands to a primary_bedroom
+    + a full_bath, with a shared `suite_group` marker so the architect can
+    pair them with an ensuite adjacency).
+
+    Labels only get a numeric suffix when more than one of a type exists.
     """
-    out: list[dict] = []
+    # First pass: count total instances per CONCRETE component type so we
+    # know whether to suffix labels.
+    totals: dict[str, int] = {}
     for r in rooms:
         spec = CATALOG_BY_TYPE.get(r.type)
         if spec is None:
             raise ValueError(f"unknown room type: {r.type}")
         if r.count < 1:
             continue
-        for i in range(1, r.count + 1):
-            label = spec.label if r.count == 1 else f"{spec.label} {i}"
-            out.append(
-                {
-                    "id": f"{r.type}_{i}",
-                    "type": spec.type,
-                    "label": label,
-                    "zone": spec.zone,
-                    "target_area_m2": spec.target_m2,
-                    "min_area_m2": spec.min_m2,
-                    "min_width_m": spec.min_width_m,
-                    "needs_window": spec.needs_window,
-                    "needs_egress": spec.needs_egress,
-                    "needs_exterior_wall": spec.needs_exterior_wall,
-                }
-            )
+        if spec.bundle:
+            for ctype in spec.bundle:
+                totals[ctype] = totals.get(ctype, 0) + r.count
+        else:
+            totals[r.type] = totals.get(r.type, 0) + r.count
+
+    # Second pass: emit per-instance dicts.
+    out: list[dict] = []
+    counters: dict[str, int] = {}
+    suite_counter = 0
+    for r in rooms:
+        spec = CATALOG_BY_TYPE[r.type]
+        if r.count < 1:
+            continue
+        for _ in range(r.count):
+            if spec.bundle:
+                suite_counter += 1
+                suite_id = f"{r.type}_{suite_counter}"
+                for ctype in spec.bundle:
+                    comp = CATALOG_BY_TYPE.get(ctype)
+                    if comp is None:
+                        continue
+                    counters[ctype] = counters.get(ctype, 0) + 1
+                    idx = counters[ctype]
+                    label = comp.label if totals.get(ctype, 0) == 1 else f"{comp.label} {idx}"
+                    out.append(_room_dict(comp, idx, label, suite_group=suite_id))
+            else:
+                counters[r.type] = counters.get(r.type, 0) + 1
+                idx = counters[r.type]
+                label = spec.label if totals.get(r.type, 0) == 1 else f"{spec.label} {idx}"
+                out.append(_room_dict(spec, idx, label, suite_group=None))
     return out
+
+
+def _room_dict(spec, idx: int, label: str, suite_group: str | None) -> dict:
+    return {
+        "id": f"{spec.type}_{idx}",
+        "type": spec.type,
+        "label": label,
+        "zone": spec.zone,
+        "target_area_m2": spec.target_m2,
+        "min_area_m2": spec.min_m2,
+        "min_width_m": spec.min_width_m,
+        "needs_window": spec.needs_window,
+        "needs_egress": spec.needs_egress,
+        "needs_exterior_wall": spec.needs_exterior_wall,
+        "suite_group": suite_group,
+    }
 
 
 def summarize_program(boundary: Boundary, rooms: list[RoomRequest]) -> ProgramSummary:

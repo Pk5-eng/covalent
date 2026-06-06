@@ -25,6 +25,7 @@ export type CatalogRoom = {
   needs_egress: boolean;
   needs_exterior_wall: boolean;
   max_count: number;
+  bundle?: string[]; // suite types expand into these components
 };
 
 export type ProgramSummary = {
