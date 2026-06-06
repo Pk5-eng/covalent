@@ -406,6 +406,17 @@ def _shared_edge_length_rects(a: Rect, b: Rect) -> float:
     return 0.0
 
 
+BATHROOM_TYPES = {"full_bath", "powder"}
+# Room types whose only legitimate entry is from a bedroom or circulation.
+# A pantry must not be doored through a bathroom; a kitchen must not be
+# doored through a bathroom; etc. Bathrooms are not thoroughfares.
+NO_BATHROOM_DOORWAY = {
+    "pantry", "laundry", "storage", "garage_single", "garage_double",
+    "kitchen", "dining_room", "living_room", "family_room", "media_room",
+    "foyer", "gallery", "mudroom", "sunroom",
+}
+
+
 def _pick_door_wall(
     room_id: str,
     rects: dict[str, Rect],
@@ -417,12 +428,17 @@ def _pick_door_wall(
     Strong preference order: circulation > public > service. Private
     neighbours are a last resort — placing a door between two bedrooms
     is architecturally wrong (you don't enter one bedroom through
-    another). Among ties, longest wall wins.
+    another). Bathrooms are excluded as neighbour candidates entirely
+    for most room types — bathrooms aren't thoroughfares, you don't
+    walk through them to reach the pantry.
+
+    Among ties, longest wall wins.
     """
     if room_id not in rects:
         return None
     rect = rects[room_id]
     my_zone = program_by_id.get(room_id, {}).get("zone", "")
+    my_type = program_by_id.get(room_id, {}).get("type", "")
     zone_score = {"circulation": 4, "public": 3, "service": 2, "private": 0, "exterior": 0}
 
     candidates_by_score: dict[int, list[tuple[float, Wall]]] = {}
@@ -435,9 +451,15 @@ def _pick_door_wall(
         if other is None:
             continue
         other_zone = program_by_id.get(other, {}).get("zone", "")
+        other_type = program_by_id.get(other, {}).get("type", "")
+
+        # Bathrooms are not thoroughfares: skip them as doorway neighbours
+        # for any room type that isn't a bedroom or circulation room.
+        if other_type in BATHROOM_TYPES and my_type in NO_BATHROOM_DOORWAY:
+            continue
+
         zs = zone_score.get(other_zone, 0)
-        # If both rooms are private, drop the score hard so we only pick
-        # this wall when nothing else exists.
+        # Drop private→private scores hard — only used as a true last resort.
         if my_zone == "private" and other_zone == "private":
             zs = -1
         length = _length_xy(w.a, w.b)

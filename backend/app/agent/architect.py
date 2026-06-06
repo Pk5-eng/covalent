@@ -154,7 +154,9 @@ def _fallback_program(rooms_expanded: list[dict], usable_area_m2: float) -> Prog
     _apply_pair(by_type, rooms_payload, "kitchen", "dining_room", adjacent=True)
     _apply_pair(by_type, rooms_payload, "kitchen", "living_room", adjacent=True)
     _apply_pair(by_type, rooms_payload, "dining_room", "living_room", adjacent=True)
+    _apply_pair(by_type, rooms_payload, "kitchen", "pantry", adjacent=True)
     _apply_pair(by_type, rooms_payload, "mudroom", "kitchen", adjacent=True)
+    _apply_pair(by_type, rooms_payload, "mudroom", "laundry", adjacent=True)
     _apply_pair(by_type, rooms_payload, "garage_single", "mudroom", adjacent=True)
     _apply_pair(by_type, rooms_payload, "garage_double", "mudroom", adjacent=True)
     _apply_pair(by_type, rooms_payload, "powder", "foyer", adjacent=True)
@@ -189,15 +191,10 @@ def _fallback_program(rooms_expanded: list[dict], usable_area_m2: float) -> Prog
     if standalone_primaries and standalone_baths:
         _link(standalone_primaries[0], standalone_baths[0], adjacent=True)
 
-    # Cluster bedrooms together.
-    bedrooms = (
-        by_type.get("primary_bedroom", [])
-        + by_type.get("bedroom", [])
-        + by_type.get("kids_room", [])
-        + by_type.get("guest_room", [])
-    )
-    for i in range(len(bedrooms) - 1):
-        _link(bedrooms[i], bedrooms[i + 1], adjacent=True)
+    # Note: bedrooms cluster naturally because of the zoning cost term.
+    # We do NOT add bedroom-to-bedroom adjacency edges — that would force
+    # the wall-builder to place a door between bedrooms, which is
+    # architecturally wrong (you don't enter one bedroom through another).
 
     # Entry adjacencies: link the entry to the first public room.
     public_targets = [r for r in rooms_payload if r["id"] != entry_id and r["zone"] == "public"]

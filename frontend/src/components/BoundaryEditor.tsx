@@ -175,19 +175,31 @@ function DimensionLine(props: {
 
 function Handle({ cx, cy, cursor, onDown }: { cx: number; cy: number; cursor: string; onDown: () => void }) {
   return (
-    <rect
-      x={cx - 5}
-      y={cy - 5}
-      width={10}
-      height={10}
-      fill="#2a4d3a"
-      stroke="#fff"
-      strokeWidth={1}
-      style={{ cursor }}
-      onMouseDown={(e) => {
-        e.preventDefault();
-        onDown();
-      }}
-    />
+    <g>
+      {/* large invisible hit target so the handle is easy to grab */}
+      <rect
+        x={cx - 14}
+        y={cy - 14}
+        width={28}
+        height={28}
+        fill="transparent"
+        style={{ cursor }}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          onDown();
+        }}
+      />
+      <rect
+        x={cx - 7}
+        y={cy - 7}
+        width={14}
+        height={14}
+        fill="#2a4d3a"
+        stroke="#fff"
+        strokeWidth={1.5}
+        rx={2}
+        style={{ cursor, pointerEvents: "none" }}
+      />
+    </g>
   );
 }

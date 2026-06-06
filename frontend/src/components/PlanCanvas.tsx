@@ -930,8 +930,24 @@ function RoomLabel({
   const px = X(1) - X(0);
   // Tighter scaling: room name is ~3-4 mm at 1:100, so cap and scale conservatively.
   const fontSize = Math.max(7.5, Math.min(11, minDim * px * 0.035));
+  // Approximate backdrop box around the text so it clears any drawing
+  // beneath it (furniture outlines, door arcs, etc.). The architectural
+  // convention is that labels always sit on a cleared field.
+  const labelLen = room.label.length;
+  const boxW = Math.max(fontSize * labelLen * 0.55, 32);
+  const boxH = fontSize * 2.6;
   return (
     <g transform={`translate(${X(cx).toFixed(1)},${Y(cy).toFixed(1)})`}>
+      <rect
+        x={-boxW / 2}
+        y={-boxH / 2}
+        width={boxW}
+        height={boxH}
+        rx={3}
+        fill={PAPER}
+        fillOpacity={0.88}
+        stroke="none"
+      />
       <text
         textAnchor="middle"
         dominantBaseline="central"

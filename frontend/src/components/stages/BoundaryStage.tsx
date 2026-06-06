@@ -5,6 +5,15 @@ const GRID_MM = 100;
 const MIN_MM = 3000;
 const MAX_MM = 30000;
 
+const PRESETS: { label: string; w: number; d: number }[] = [
+  { label: "Studio",    w: 6000,  d: 5000 },
+  { label: "1-bedroom", w: 9000,  d: 7000 },
+  { label: "2-bedroom", w: 12000, d: 9000 },
+  { label: "3-bedroom", w: 14000, d: 11000 },
+  { label: "4-bedroom", w: 16000, d: 12000 },
+  { label: "Large home", w: 20000, d: 15000 },
+];
+
 function clampSnap(value: number): number {
   if (!Number.isFinite(value)) return MIN_MM;
   const snapped = Math.round(value / GRID_MM) * GRID_MM;
@@ -35,7 +44,7 @@ export function BoundaryStage() {
               <label>Width (m)</label>
               <input
                 type="number"
-                step={0.1}
+                step={0.5}
                 min={MIN_MM / 1000}
                 max={MAX_MM / 1000}
                 value={(boundary.width_mm / 1000).toFixed(1)}
@@ -48,7 +57,7 @@ export function BoundaryStage() {
               <label>Depth (m)</label>
               <input
                 type="number"
-                step={0.1}
+                step={0.5}
                 min={MIN_MM / 1000}
                 max={MAX_MM / 1000}
                 value={(boundary.depth_mm / 1000).toFixed(1)}
@@ -56,6 +65,29 @@ export function BoundaryStage() {
                   setBoundary({ depth_mm: clampSnap(parseFloat(e.target.value) * 1000) })
                 }
               />
+            </div>
+          </div>
+
+          <div>
+            <div className="eyebrow" style={{ marginBottom: 6 }}>Quick sizes</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 6 }}>
+              {PRESETS.map((p) => {
+                const active =
+                  boundary.width_mm === p.w && boundary.depth_mm === p.d;
+                return (
+                  <button
+                    key={p.label}
+                    className={active ? "primary" : ""}
+                    onClick={() => setBoundary({ width_mm: p.w, depth_mm: p.d })}
+                    style={{ fontSize: 12, padding: "6px 8px", textAlign: "left" }}
+                  >
+                    <strong>{p.label}</strong>
+                    <span style={{ marginLeft: 6, opacity: 0.7 }}>
+                      {p.w / 1000}×{p.d / 1000} m
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
