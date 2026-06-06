@@ -28,7 +28,7 @@ from app.rules.defaults import CATALOG_BY_TYPE, ROOM_CATALOG
 
 logger = logging.getLogger("covalent.agent")
 
-DEFAULT_MODEL = os.environ.get("COVALENT_AGENT_MODEL", "claude-opus-4-7")
+DEFAULT_MODEL = os.environ.get("COVALENT_AGENT_MODEL", "claude-sonnet-4-6")
 DEFAULT_MAX_TOKENS = int(os.environ.get("COVALENT_AGENT_MAX_TOKENS", "4096"))
 
 
@@ -49,12 +49,26 @@ def generate_program(
         logger.info("ANTHROPIC_API_KEY not set; using deterministic fallback program")
         program = _fallback_program(summary.rooms_expanded, summary.usable_area_m2)
     else:
-        program = _call_claude(
-            usable_area_m2=summary.usable_area_m2,
-            rooms_expanded=summary.rooms_expanded,
-            model=model or DEFAULT_MODEL,
-            api_key=api_key,
-        )
+        try:
+            program = _call_claude(
+                usable_area_m2=summary.usable_area_m2,
+                rooms_expanded=summary.rooms_expanded,
+                model=model or DEFAULT_MODEL,
+                api_key=api_key,
+            )
+        except AgentOutputError:
+            # Output validation failures bubble up — that's a real bug we want to see.
+            raise
+        except Exception as e:
+            # Network errors, wrong model id, rate limits, etc. shouldn't take the
+            # whole generate request down. Fall back to the deterministic program
+            # so the user still gets a plan, and log loudly so operators notice.
+            logger.warning(
+                "agent call failed (%s: %s); falling back to deterministic program",
+                type(e).__name__,
+                e,
+            )
+            program = _fallback_program(summary.rooms_expanded, summary.usable_area_m2)
 
     return clamp_to_usable_area(program, summary.usable_area_m2)
 
