@@ -6,7 +6,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://REPLACE-WITH-RAILWAY-URL/api/:path*"
+      "destination": "https://covalent-production-e337.up.railway.app/"
     }
   ]
 }
