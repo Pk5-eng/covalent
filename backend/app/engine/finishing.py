@@ -129,6 +129,7 @@ def build_walls_and_openings(
     boundary_w: float,
     boundary_h: float,
     adjacency_graph_edges: Iterable[tuple[str, str]],
+    entry_room_id: str | None = None,
 ) -> tuple[list[Wall], list[Opening]]:
     """Build wall + opening lists from snapped rectangles.
 
@@ -236,13 +237,61 @@ def build_walls_and_openings(
     openings = _ensure_room_reachability(
         rects, program_by_id, walls, openings, opening_id_counter
     )
-    opening_id_counter = max((int(o.id[1:]) for o in openings if o.id.startswith("d")), default=0)
+    opening_id_counter = max(
+        (int(o.id[1:]) for o in openings if o.id.startswith("d")), default=0
+    )
+
+    # Front door: an entry door on the entry room's exterior wall. Without
+    # this, a plan has no architectural "way in".
+    if entry_room_id and entry_room_id in rects:
+        front_door = _place_front_door(
+            entry_room_id, rects, walls, openings, opening_id_counter
+        )
+        if front_door is not None:
+            openings.append(front_door)
+            opening_id_counter += 1
 
     # Windows on exterior walls for rooms needing daylight.
     windows = _place_windows(rects, program_by_id, walls, boundary_w, boundary_h, opening_id_counter)
     openings.extend(windows)
 
     return walls, openings
+
+
+def _place_front_door(
+    entry_room_id: str,
+    rects: dict[str, Rect],
+    walls: list[Wall],
+    openings: list[Opening],
+    base_id: int,
+) -> Opening | None:
+    """Place a real front door on the longest exterior wall of the entry room."""
+    rect = rects[entry_room_id]
+    # Find exterior walls that lie on the entry room's boundary edges.
+    candidates: list[Wall] = []
+    for w in walls:
+        if w.type != "exterior":
+            continue
+        if _wall_lies_on_room_edge(w, rect):
+            candidates.append(w)
+    if not candidates:
+        return None
+    # Skip walls that already have a door at the centre.
+    door_walls = {o.wall_id for o in openings if o.kind == "door"}
+    candidates = [w for w in candidates if w.id not in door_walls]
+    if not candidates:
+        return None
+    wall = max(candidates, key=lambda w: _length_xy(w.a, w.b))
+    if _length_xy(wall.a, wall.b) < DOOR_WIDTHS_MM["entry"] + 400:
+        return None
+    return Opening(
+        id=f"d{base_id + 1}",
+        kind="door",
+        wall_id=wall.id,
+        position=0.5,
+        width_mm=DOOR_WIDTHS_MM["entry"],
+        swing="in_left",
+    )
 
 
 def _ensure_room_reachability(
@@ -365,15 +414,18 @@ def _pick_door_wall(
 ) -> Wall | None:
     """Pick the best interior wall to door from `room_id`.
 
-    Preference: circulation > public > service > private. Among ties,
-    longest wall wins.
+    Strong preference order: circulation > public > service. Private
+    neighbours are a last resort — placing a door between two bedrooms
+    is architecturally wrong (you don't enter one bedroom through
+    another). Among ties, longest wall wins.
     """
     if room_id not in rects:
         return None
     rect = rects[room_id]
-    zone_score = {"circulation": 4, "public": 3, "service": 2, "private": 1, "exterior": 0}
-    best = None
-    best_score = (-1, -1.0)
+    my_zone = program_by_id.get(room_id, {}).get("zone", "")
+    zone_score = {"circulation": 4, "public": 3, "service": 2, "private": 0, "exterior": 0}
+
+    candidates_by_score: dict[int, list[tuple[float, Wall]]] = {}
     for w in walls:
         if w.type != "interior":
             continue
@@ -384,12 +436,18 @@ def _pick_door_wall(
             continue
         other_zone = program_by_id.get(other, {}).get("zone", "")
         zs = zone_score.get(other_zone, 0)
+        # If both rooms are private, drop the score hard so we only pick
+        # this wall when nothing else exists.
+        if my_zone == "private" and other_zone == "private":
+            zs = -1
         length = _length_xy(w.a, w.b)
-        score = (zs, length)
-        if score > best_score:
-            best = w
-            best_score = score
-    return best
+        candidates_by_score.setdefault(zs, []).append((length, w))
+
+    if not candidates_by_score:
+        return None
+    best_zs = max(candidates_by_score.keys())
+    # Among the best zone, pick the longest wall.
+    return max(candidates_by_score[best_zs], key=lambda lw: lw[0])[1]
 
 
 def _other_room_on_wall(wall: Wall, room_id: str, rects: dict[str, Rect]) -> str | None:
@@ -521,6 +579,7 @@ def finish_floor_plan(
     adjacency_pairs: Iterable[tuple[str, str]],
     *,
     grid_mm: float = GRID_MM,
+    entry_room_id: str | None = None,
 ) -> FloorPlan:
     """Run the finishing passes and return a validated FloorPlan."""
     # 1. Snap.
@@ -561,6 +620,7 @@ def finish_floor_plan(
         boundary.width_mm,
         boundary.depth_mm,
         adjacency_pairs,
+        entry_room_id=entry_room_id,
     )
 
     fixtures = place_fixtures_in_plan(rooms, walls=walls, openings=openings)

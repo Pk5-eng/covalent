@@ -81,6 +81,7 @@ def build_floor_plan(
         result.rects,
         program_rows,
         adjacency_pairs,
+        entry_room_id=program.circulation.entry_room_id,
     )
 
     diag = LayoutDiagnostics(
@@ -142,7 +143,10 @@ def dimension_with_expr(
         raise InfeasibleLayout("expression not feasible for this boundary")
     rects = dimension(expr, boundary.width_mm, boundary.depth_mm, specs)
     adjacency_pairs = [(r["id"], ref) for r in rows for ref in r.get("adjacent_to", [])]
-    plan = finish_floor_plan(boundary, rects, rows, adjacency_pairs)
+    plan = finish_floor_plan(
+        boundary, rects, rows, adjacency_pairs,
+        entry_room_id=program.circulation.entry_room_id,
+    )
     return plan, LayoutDiagnostics(
         cost=0.0,
         breakdown=CostBreakdown(),

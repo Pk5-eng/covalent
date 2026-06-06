@@ -928,7 +928,8 @@ function RoomLabel({
     Math.max(...ys) - Math.min(...ys),
   );
   const px = X(1) - X(0);
-  const fontSize = Math.max(9, Math.min(15, minDim * px * 0.055));
+  // Tighter scaling: room name is ~3-4 mm at 1:100, so cap and scale conservatively.
+  const fontSize = Math.max(7.5, Math.min(11, minDim * px * 0.035));
   return (
     <g transform={`translate(${X(cx).toFixed(1)},${Y(cy).toFixed(1)})`}>
       <text

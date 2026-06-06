@@ -201,6 +201,8 @@ function RoomRow({
   );
 }
 
+const BATHROOM_TYPES = new Set(["full_bath", "powder"]);
+
 function Tally() {
   const check = usePlanStore((s) => s.check);
   const rooms = usePlanStore((s) => s.rooms);
@@ -213,6 +215,20 @@ function Tally() {
   const s = check.summary;
   const usagePct = (s.target_total_m2 / s.usable_area_m2) * 100;
   const cls = !check.ok ? "tally-bar danger" : usagePct > 100 ? "tally-bar warn" : "tally-bar";
+
+  // Architectural nudges: complete homes almost always need a bathroom + entry.
+  const advisories: string[] = [];
+  const hasBathroom = Object.entries(rooms).some(
+    ([type, count]) => BATHROOM_TYPES.has(type) && count > 0,
+  );
+  if (!hasBathroom) {
+    advisories.push("No bathroom selected. Most homes need at least one full bath or powder room.");
+  }
+  const hasEntry = (rooms["foyer"] ?? 0) > 0 || (rooms["mudroom"] ?? 0) > 0;
+  if (!hasEntry) {
+    advisories.push("No foyer or mudroom selected. The front door will be placed on the first public room.");
+  }
+
   return (
     <div className="tally">
       <div className="tally-row"><span>Usable area</span><span>{s.usable_area_m2.toFixed(1)} m²</span></div>
@@ -232,6 +248,13 @@ function Tally() {
         <div className="notes">
           {check.warnings.map((w, i) => (
             <div key={`w${i}`} className="note warn"><span className="dot" />{w}</div>
+          ))}
+        </div>
+      )}
+      {advisories.length > 0 && (
+        <div className="notes">
+          {advisories.map((a, i) => (
+            <div key={`a${i}`} className="note warn"><span className="dot" />{a}</div>
           ))}
         </div>
       )}

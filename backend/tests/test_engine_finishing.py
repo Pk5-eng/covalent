@@ -65,13 +65,17 @@ def test_pipeline_end_to_end_validates_and_has_walls(monkeypatch):
     # Mix of exterior and interior walls.
     assert any(w.type == "exterior" for w in plan.walls)
     assert any(w.type == "interior" for w in plan.walls)
-    # Doors only on interior walls, windows only on exterior walls.
+    # Doors live on interior walls in general; the front door is the only
+    # exterior-wall door (it belongs to the entry room). Windows go on
+    # exterior walls.
     by_wall = {w.id: w for w in plan.walls}
+    exterior_doors = [
+        op for op in plan.openings if op.kind == "door" and by_wall[op.wall_id].type == "exterior"
+    ]
+    assert len(exterior_doors) <= 1, "more than one front door"
     for op in plan.openings:
         wall = by_wall[op.wall_id]
-        if op.kind == "door":
-            assert wall.type == "interior", f"door {op.id} on exterior wall"
-        else:
+        if op.kind == "window":
             assert wall.type == "exterior", f"window {op.id} on interior wall"
 
     # Render the final visual.
