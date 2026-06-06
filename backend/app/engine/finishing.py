@@ -563,7 +563,7 @@ def finish_floor_plan(
         adjacency_pairs,
     )
 
-    fixtures = place_fixtures_in_plan(rooms)
+    fixtures = place_fixtures_in_plan(rooms, walls=walls, openings=openings)
 
     plan = FloorPlan(
         boundary=boundary,

@@ -12,8 +12,12 @@ const PADDING_MM = 1400;
 const TARGET_WIDTH_PX = 1100;
 
 // Palette for the drawing. Off-black walls, warm fixture tones, muted dimensions.
-const INK = "#1f1f1d";
-const INK_SOFT = "#3a3a36";
+const INK = "#262624";
+const INK_SOFT = "#4a4a44";
+// Visual cap on wall thickness — at scale walls would read chunky and
+// dominate the drawing, so cap to elegant pixel values.
+const MAX_WALL_PX_EXTERIOR = 6;
+const MAX_WALL_PX_INTERIOR = 3.5;
 const FIXT_STROKE = "#5a4838";
 const FIXT_FILL = "#fdf8ec";
 const FIXT_DETAIL = "#7a6248";
@@ -228,9 +232,11 @@ function WallPoche({
   Y: (m: number) => number;
   scalePxPerMm: number;
 }) {
-  const thickness = wall.thickness_mm * scalePxPerMm;
+  // Cap the rendered thickness so walls never dominate the drawing.
+  const maxPx = wall.type === "exterior" ? MAX_WALL_PX_EXTERIOR : MAX_WALL_PX_INTERIOR;
+  const thicknessPx = Math.min(wall.thickness_mm * scalePxPerMm, maxPx);
   const n = wallNormal(wall);
-  const half = thickness / 2;
+  const half = thicknessPx / 2;
   const a = { x: X(wall.a[0]), y: Y(wall.a[1]) };
   const b = { x: X(wall.b[0]), y: Y(wall.b[1]) };
   const pts = [
@@ -245,7 +251,7 @@ function WallPoche({
       points={pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}
       fill={fill}
       stroke={fill}
-      strokeWidth={0.5}
+      strokeWidth={0.3}
       strokeLinejoin="round"
     />
   );
@@ -277,7 +283,9 @@ function OpeningGlyph({
   const dir = { x: v.x / totalLen, y: v.y / totalLen };
   const a = { x: center.x - dir.x * halfMm, y: center.y - dir.y * halfMm };
   const b = { x: center.x + dir.x * halfMm, y: center.y + dir.y * halfMm };
-  const thicknessPx = wall.thickness_mm * scalePxPerMm;
+  // Match the capped wall thickness so the opening punches the visible wall cleanly.
+  const maxPx = wall.type === "exterior" ? MAX_WALL_PX_EXTERIOR : MAX_WALL_PX_INTERIOR;
+  const thicknessPx = Math.min(wall.thickness_mm * scalePxPerMm, maxPx) + 1;
 
   if (opening.kind === "door") {
     const swing = wallNormal(wall);
