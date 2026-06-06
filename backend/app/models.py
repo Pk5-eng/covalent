@@ -61,6 +61,21 @@ class Opening(BaseModel):
     is_egress: bool = False
 
 
+class Fixture(BaseModel):
+    """Furniture/fixture placed inside a room (bed, sink, sofa, etc.).
+
+    Stored as a closed polygon in mm so renderers and exporters draw it
+    directly without re-deriving rotation math.
+    """
+
+    id: str
+    room_id: str
+    kind: str  # bed, sofa, table, sink, toilet, tub, stove, fridge, counter, desk, wardrobe
+    label: str = ""
+    polygon: list[tuple[float, float]] = Field(default_factory=list)
+    rotation_deg: float = 0  # canonical orientation, just metadata for renderers
+
+
 class PlanMeta(BaseModel):
     scale: str = "1:100"
     north_deg: float = 0
@@ -72,6 +87,7 @@ class FloorPlan(BaseModel):
     rooms: list[Room]
     walls: list[Wall] = Field(default_factory=list)
     openings: list[Opening] = Field(default_factory=list)
+    fixtures: list[Fixture] = Field(default_factory=list)
     meta: PlanMeta = Field(default_factory=PlanMeta)
 
 

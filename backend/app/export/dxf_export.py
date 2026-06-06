@@ -64,6 +64,7 @@ def floor_plan_to_dxf(plan: FloorPlan, output: BinaryIO) -> None:
 
     _draw_walls(msp, plan)
     _draw_openings(msp, plan)
+    _draw_fixtures(msp, plan)
     _draw_room_labels(msp, plan)
     _draw_dimensions(msp, plan)
     _draw_title_block(msp, plan)
@@ -201,6 +202,26 @@ def _draw_openings(msp, plan: FloorPlan) -> None:
                 "layer": LAYER_DOOR if op.kind == "door" else LAYER_GLAZ,
             },
         )
+
+
+def _draw_fixtures(msp, plan: FloorPlan) -> None:
+    """Furniture/fixtures as lwpolylines on A-FLOR-FIXT, with a small MTEXT label."""
+    for fx in plan.fixtures:
+        if len(fx.polygon) < 3:
+            continue
+        msp.add_lwpolyline(
+            list(fx.polygon),
+            close=True,
+            dxfattribs={"layer": LAYER_FIXT, "color": colors.MAGENTA},
+        )
+        if fx.label:
+            cx = sum(p[0] for p in fx.polygon) / len(fx.polygon)
+            cy = sum(p[1] for p in fx.polygon) / len(fx.polygon)
+            text = msp.add_mtext(
+                fx.label,
+                dxfattribs={"layer": LAYER_FIXT, "char_height": 120},
+            )
+            text.set_location(insert=(cx, cy), attachment_point=5)
 
 
 def _room_centroid(room: Room) -> tuple[float, float]:

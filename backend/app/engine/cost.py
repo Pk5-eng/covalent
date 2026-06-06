@@ -43,6 +43,7 @@ class CostBreakdown:
     daylight: float = 0.0
     area_deviation: float = 0.0
     circulation: float = 0.0
+    entry_position: float = 0.0
     min_dim_violation: float = 0.0
 
     weighted_total: float = 0.0
@@ -56,6 +57,7 @@ class CostBreakdown:
             "daylight": self.daylight,
             "area_deviation": self.area_deviation,
             "circulation": self.circulation,
+            "entry_position": self.entry_position,
             "min_dim_violation": self.min_dim_violation,
             "weighted_total": self.weighted_total,
             "details": self.details,
@@ -100,6 +102,11 @@ def evaluate_cost(
         by_id, shared, entry_room_id, b.details
     )
 
+    # entry-on-exterior + entry near the requested side
+    b.entry_position = _entry_position_term(
+        by_id, polys, boundary_w, boundary_h, entry_room_id, b.details
+    )
+
     # minimum-dimension violations (mins came from spec; should never trigger
     # if dimensioning honored them, but a safety net for resize/edits).
     b.min_dim_violation = _min_dim_term(by_id, rects, b.details)
@@ -111,6 +118,7 @@ def evaluate_cost(
         + weights.daylight * b.daylight
         + weights.area_deviation * b.area_deviation
         + weights.circulation * b.circulation
+        + weights.entry_position * b.entry_position
         + weights.min_dim_violation * b.min_dim_violation
     )
     return b
@@ -315,6 +323,41 @@ def _circulation_term(
     else:
         pen += 1
         details["circulation"] = {"no_entry": True}
+    return pen
+
+
+def _entry_position_term(
+    by_id: dict[str, dict],
+    polys: dict[str, Polygon],
+    boundary_w: float,
+    boundary_h: float,
+    entry_room_id: str | None,
+    details: dict,
+) -> float:
+    """Entry room must touch the boundary for at least a door's width.
+
+    Without this term the slicing tree happily lands the foyer in the
+    middle of the floor, which makes no architectural sense — you can't
+    walk into your house through an interior wall.
+    """
+    if not entry_room_id or entry_room_id not in polys:
+        details["entry_position"] = {"no_entry": True}
+        return 0.0
+
+    entry_poly = polys[entry_room_id]
+    boundary = box(0, 0, boundary_w, boundary_h)
+    contact = entry_poly.boundary.intersection(boundary.boundary)
+    contact_len = float(getattr(contact, "length", 0.0))
+
+    pen = 0.0
+    detail: dict = {"room": entry_room_id, "contact_mm": contact_len}
+    if contact_len < DOOR_THRESHOLD_MM:
+        # No room for a front door on the boundary — heavy penalty.
+        pen += 2.0 if contact_len == 0 else 1.0
+        detail["status"] = "interior"
+    else:
+        detail["status"] = "ok"
+    details["entry_position"] = detail
     return pen
 
 

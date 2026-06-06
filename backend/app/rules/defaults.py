@@ -29,7 +29,7 @@ class RoomSpec:
 # Section 7 catalog. Order matters for UI grouping.
 ROOM_CATALOG: list[RoomSpec] = [
     # public
-    RoomSpec("foyer",          "Foyer / Entry",     "public",  4,  2,   1.5, False, False, max_count=1),
+    RoomSpec("foyer",          "Foyer / Entry",     "public",  4,  2,   1.5, False, False, needs_exterior_wall=True, max_count=1),
     RoomSpec("living_room",    "Living Room",       "public",  22, 14,  3.5, True,  False, needs_exterior_wall=True, max_count=2),
     RoomSpec("family_room",    "Family Room",       "public",  18, 12,  3.2, True,  False, needs_exterior_wall=True, max_count=2),
     RoomSpec("dining_room",    "Dining Room",       "public",  14, 9,   3.0, True,  False, needs_exterior_wall=True, max_count=2),
@@ -113,6 +113,7 @@ class CostWeights:
     daylight: float = 1.5
     area_deviation: float = 1.0
     circulation: float = 2.0
+    entry_position: float = 3.0   # entry must touch the boundary
     min_dim_violation: float = 5.0  # heavy: rooms must hit minimums
 
     # aspect ratio band: comfortable 1:1..1:1.8, hard discomfort past 1:2.5

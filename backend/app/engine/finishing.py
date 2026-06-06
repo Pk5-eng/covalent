@@ -15,6 +15,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Iterable
 
+from app.engine.fixtures import place_fixtures_in_plan
 from app.engine.slicing import Rect
 from app.engine.validate import validate_floor_plan
 from app.models import Boundary, FloorPlan, Opening, PlanMeta, Room, Wall
@@ -384,11 +385,14 @@ def finish_floor_plan(
         adjacency_pairs,
     )
 
+    fixtures = place_fixtures_in_plan(rooms)
+
     plan = FloorPlan(
         boundary=boundary,
         rooms=rooms,
         walls=walls,
         openings=openings,
+        fixtures=fixtures,
         meta=PlanMeta(),
     )
 

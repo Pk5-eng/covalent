@@ -86,10 +86,20 @@ export type Opening = {
   is_egress: boolean;
 };
 
+export type Fixture = {
+  id: string;
+  room_id: string;
+  kind: string;
+  label: string;
+  polygon: [number, number][];
+  rotation_deg: number;
+};
+
 export type FloorPlan = {
   boundary: Boundary;
   rooms: Room[];
   walls: Wall[];
   openings: Opening[];
+  fixtures: Fixture[];
   meta: { scale: string; north_deg: number; title: string };
 };

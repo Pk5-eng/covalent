@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { FloorPlan, Opening, Room, Wall } from "../lib/model";
+import type { FloorPlan, Fixture, Opening, Room, Wall } from "../lib/model";
 import { LAYER_STYLE, ZONE_FILL } from "../lib/render/layers";
 import { wallLength, wallNormal, wallVector } from "../lib/render/geometry";
 
@@ -106,6 +106,13 @@ export function PlanCanvas({ plan, emptyMessage }: Props) {
           <OverallDims plan={plan} X={X} Y={Y} />
           {plan.rooms.map((room) => (
             <RoomDims key={`dim-${room.id}`} room={room} X={X} Y={Y} />
+          ))}
+        </g>
+
+        {/* fixtures (drawn under walls so wall lines crisp through) */}
+        <g>
+          {plan.fixtures.map((fx) => (
+            <FixtureGlyph key={fx.id} fixture={fx} X={X} Y={Y} />
           ))}
         </g>
 
@@ -246,6 +253,188 @@ function OpeningGlyph({
       <line x1={X(a.x)} y1={Y(a.y)} x2={X(b.x)} y2={Y(b.y)} stroke="#fafaf7" strokeWidth={3} />
       <line x1={X(top1.x)} y1={Y(top1.y)} x2={X(top2.x)} y2={Y(top2.y)} />
       <line x1={X(bot1.x)} y1={Y(bot1.y)} x2={X(bot2.x)} y2={Y(bot2.y)} />
+    </g>
+  );
+}
+
+function FixtureGlyph({
+  fixture,
+  X,
+  Y,
+}: {
+  fixture: Fixture;
+  X: (m: number) => number;
+  Y: (m: number) => number;
+}) {
+  if (fixture.polygon.length < 3) return null;
+  const xs = fixture.polygon.map((p) => p[0]);
+  const ys = fixture.polygon.map((p) => p[1]);
+  const x0 = Math.min(...xs);
+  const y0 = Math.min(...ys);
+  const x1 = Math.max(...xs);
+  const y1 = Math.max(...ys);
+  const w = x1 - x0;
+  const h = y1 - y0;
+  const cx = (x0 + x1) / 2;
+  const cy = (y0 + y1) / 2;
+  const px = X(1) - X(0); // pixels per mm
+  const stroke = "#7a5a3a";
+  const fill = "#fdf6e7";
+
+  const outline = (
+    <rect
+      x={X(x0)}
+      y={Y(y0)}
+      width={w * px}
+      height={h * px}
+      fill={fill}
+      stroke={stroke}
+      strokeWidth={0.7}
+      vectorEffect="non-scaling-stroke"
+    />
+  );
+
+  let glyph: JSX.Element | null = null;
+  switch (fixture.kind) {
+    case "bed":
+    case "crib":
+      // Pillow band along the shorter side (head of bed)
+      glyph = (
+        <rect
+          x={X(x0)}
+          y={Y(y0)}
+          width={Math.min(w, h) * 0.25 * px}
+          height={h * px}
+          fill="none"
+          stroke={stroke}
+          strokeWidth={0.6}
+        />
+      );
+      break;
+    case "sofa": {
+      const armR = Math.min(w, h) * 0.15;
+      glyph = (
+        <g stroke={stroke} strokeWidth={0.6} fill="none">
+          {/* arms */}
+          <rect x={X(x0)} y={Y(y0)} width={armR * px} height={h * px} />
+          <rect x={X(x1 - armR)} y={Y(y0)} width={armR * px} height={h * px} />
+          {/* back */}
+          <rect x={X(x0)} y={Y(y0)} width={w * px} height={Math.min(h * 0.3, 180) * px} />
+        </g>
+      );
+      break;
+    }
+    case "toilet":
+      glyph = (
+        <g stroke={stroke} strokeWidth={0.6} fill="none">
+          <rect x={X(x0)} y={Y(y0)} width={w * px} height={h * 0.3 * px} />
+          <ellipse
+            cx={X(cx)}
+            cy={Y(y0 + h * 0.65)}
+            rx={w * 0.4 * px}
+            ry={h * 0.32 * px}
+          />
+        </g>
+      );
+      break;
+    case "sink":
+      glyph = (
+        <ellipse
+          cx={X(cx)}
+          cy={Y(cy)}
+          rx={w * 0.4 * px}
+          ry={h * 0.4 * px}
+          fill="none"
+          stroke={stroke}
+          strokeWidth={0.6}
+        />
+      );
+      break;
+    case "tub":
+      glyph = (
+        <rect
+          x={X(x0 + w * 0.08)}
+          y={Y(y0 + h * 0.08)}
+          width={w * 0.84 * px}
+          height={h * 0.84 * px}
+          rx={Math.min(w, h) * 0.1 * px}
+          fill="none"
+          stroke={stroke}
+          strokeWidth={0.6}
+        />
+      );
+      break;
+    case "table":
+    case "coffee_table":
+      glyph = null; // outline is enough
+      break;
+    case "counter":
+      glyph = (
+        <g stroke={stroke} strokeWidth={0.4} fill="none">
+          {/* sink + stove indicators along the run */}
+          <rect x={X(x0 + w * 0.3)} y={Y(y0 + h * 0.2)} width={w * 0.15 * px} height={h * 0.6 * px} />
+          <circle cx={X(x0 + w * 0.65)} cy={Y(y0 + h * 0.35)} r={Math.min(w, h) * 0.06 * px} />
+          <circle cx={X(x0 + w * 0.8)} cy={Y(y0 + h * 0.35)} r={Math.min(w, h) * 0.06 * px} />
+          <circle cx={X(x0 + w * 0.65)} cy={Y(y0 + h * 0.65)} r={Math.min(w, h) * 0.06 * px} />
+          <circle cx={X(x0 + w * 0.8)} cy={Y(y0 + h * 0.65)} r={Math.min(w, h) * 0.06 * px} />
+        </g>
+      );
+      break;
+    case "fridge":
+      glyph = (
+        <line
+          x1={X(x0)}
+          y1={Y(y0 + h * 0.55)}
+          x2={X(x1)}
+          y2={Y(y0 + h * 0.55)}
+          stroke={stroke}
+          strokeWidth={0.5}
+        />
+      );
+      break;
+    case "wardrobe":
+    case "bookshelf":
+    case "shelving":
+      // Door split lines
+      glyph = (
+        <g stroke={stroke} strokeWidth={0.4}>
+          <line x1={X(x0 + w / 2)} y1={Y(y0)} x2={X(x0 + w / 2)} y2={Y(y1)} />
+        </g>
+      );
+      break;
+    case "desk":
+      glyph = (
+        <circle
+          cx={X(cx)}
+          cy={Y(y0 + h * 0.85)}
+          r={Math.min(w, h) * 0.13 * px}
+          fill="none"
+          stroke={stroke}
+          strokeWidth={0.5}
+        />
+      );
+      break;
+    case "car":
+      glyph = (
+        <g stroke={stroke} strokeWidth={0.5} fill="none">
+          <rect x={X(x0 + w * 0.1)} y={Y(y0 + h * 0.15)} width={w * 0.8 * px} height={h * 0.7 * px} rx={6} />
+          <rect x={X(x0 + w * 0.25)} y={Y(y0 + h * 0.25)} width={w * 0.5 * px} height={h * 0.3 * px} rx={4} />
+        </g>
+      );
+      break;
+    case "console":
+    case "bench":
+    case "washer":
+    case "dryer":
+    case "equipment":
+    default:
+      glyph = null;
+  }
+
+  return (
+    <g>
+      {outline}
+      {glyph}
     </g>
   );
 }
