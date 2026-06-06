@@ -54,6 +54,10 @@ ROOM_CATALOG: list[RoomSpec] = [
     RoomSpec("guest_room",     "Guest Room",        "private", 12, 9,   2.7, True,  True,  needs_exterior_wall=True, max_count=2),
     RoomSpec("walk_in_closet", "Walk-in Closet",    "private", 4,  2,   1.2, False, False, max_count=4),
     RoomSpec("home_gym",       "Home Gym",          "private", 14, 9,   3.0, False, False, max_count=1),
+    RoomSpec("library",        "Library",           "private", 14, 8,   2.7, True,  False, needs_exterior_wall=True, max_count=1),
+    RoomSpec("dressing_room",  "Dressing Room",     "private", 8,  5,   2.0, False, False, max_count=2),
+    # circulation
+    RoomSpec("gallery",        "Gallery / Hall",    "circulation", 8, 4,   1.2, False, False, max_count=2),
     # exterior
     RoomSpec("patio",          "Patio",             "exterior",12, 6,   2.4, False, False, needs_exterior_wall=True, max_count=2),
     RoomSpec("deck",           "Deck",              "exterior",14, 6,   2.4, False, False, needs_exterior_wall=True, max_count=2),

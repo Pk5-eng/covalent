@@ -17,7 +17,11 @@ import {
 
 type Status = "idle" | "loading" | "ready" | "error";
 
+export type Stage = "boundary" | "rooms" | "generate" | "plan";
+
 type PlanState = {
+  stage: Stage;
+
   catalog: CatalogRoom[];
   catalogStatus: Status;
   boundary: Boundary;
@@ -32,6 +36,11 @@ type PlanState = {
   generating: boolean;
   generateError: string | null;
   seedCounter: number;
+
+  setStage: (stage: Stage) => void;
+  goNext: () => void;
+  goBack: () => void;
+  startOver: () => void;
 
   loadCatalog: () => Promise<void>;
   setBoundary: (b: Partial<Boundary>) => void;
@@ -55,7 +64,11 @@ function roomsList(rooms: Record<string, number>): RoomRequest[] {
     .map(([type, count]) => ({ type, count }));
 }
 
+const STAGE_ORDER: Stage[] = ["boundary", "rooms", "generate", "plan"];
+
 export const usePlanStore = create<PlanState>((set, get) => ({
+  stage: "boundary",
+
   catalog: [],
   catalogStatus: "idle",
   boundary: initialBoundary,
@@ -70,6 +83,28 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   generating: false,
   generateError: null,
   seedCounter: 1,
+
+  setStage: (stage) => set({ stage }),
+  goNext: () => {
+    const cur = get().stage;
+    const idx = STAGE_ORDER.indexOf(cur);
+    if (idx < STAGE_ORDER.length - 1) set({ stage: STAGE_ORDER[idx + 1] });
+  },
+  goBack: () => {
+    const cur = get().stage;
+    const idx = STAGE_ORDER.indexOf(cur);
+    if (idx > 0) set({ stage: STAGE_ORDER[idx - 1] });
+  },
+  startOver: () =>
+    set({
+      stage: "boundary",
+      rooms: {},
+      check: null,
+      program: null,
+      plan: null,
+      diagnostics: null,
+      generateError: null,
+    }),
 
   loadCatalog: async () => {
     set({ catalogStatus: "loading" });
@@ -127,7 +162,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     const list = roomsList(get().rooms);
     if (list.length === 0) return;
     const seed = get().seedCounter;
-    set({ generating: true, generateError: null });
+    set({ generating: true, generateError: null, stage: "generate" });
     try {
       const result = await generatePlan(get().boundary, list, seed);
       set({
@@ -136,9 +171,10 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         diagnostics: result.diagnostics,
         generating: false,
         seedCounter: seed + 1,
+        stage: "plan",
       });
     } catch (e) {
-      set({ generating: false, generateError: (e as Error).message });
+      set({ generating: false, generateError: (e as Error).message, stage: "rooms" });
     }
   },
 
