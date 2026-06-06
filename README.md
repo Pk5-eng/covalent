@@ -53,6 +53,40 @@ covalent/
 
 See `CLAUDE.md` for the build sequence (Steps 1–7) and `docs/covalent-build-spec.md` for full design.
 
+## Deploy
+
+Backend on **Railway**, frontend on **Vercel**. The frontend keeps using
+relative `/api/*` URLs in prod and Vercel rewrites them to the Railway URL,
+so no `VITE_*` env vars are needed at build time.
+
+### Backend → Railway
+
+1. New project from this repo, set **root directory** to `backend/`.
+2. Railway will pick up `backend/Procfile` + `backend/nixpacks.toml` and run
+   `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
+3. Add environment variables in the Railway dashboard:
+   - `ANTHROPIC_API_KEY` — your Anthropic API key (required for the architect agent; without it the deterministic fallback kicks in).
+   - `COVALENT_CORS_ORIGINS` — comma-separated origins allowed to call the API; set to your Vercel URL after the frontend is up (e.g. `https://covalent.vercel.app`).
+   - `COVALENT_AGENT_MODEL` *(optional)* — defaults to `claude-opus-4-7`. Use `claude-sonnet-4-6` for cheaper/faster runs.
+   - `COVALENT_LOG` *(optional)* — defaults to `INFO`.
+4. Deploy. Copy the generated URL (e.g. `covalent-backend.up.railway.app`).
+5. Sanity-check: `curl https://YOUR-RAILWAY-URL/api/health` returns ok.
+
+### Frontend → Vercel
+
+1. Import this repo, set **root directory** to `frontend/`. Framework auto-detects as Vite (build `npm run build`, output `dist`).
+2. Edit `frontend/vercel.json` and replace `REPLACE-WITH-RAILWAY-URL` with your Railway host, e.g.:
+   ```json
+   "destination": "https://covalent-backend.up.railway.app/api/:path*"
+   ```
+3. Commit + push. Vercel auto-deploys.
+4. Once the Vercel URL is live, go back to Railway and update `COVALENT_CORS_ORIGINS` to the Vercel URL, then redeploy the backend.
+
+### Notes
+
+- Annealing runs synchronously inside the request (10–30 s with default 4×4000 iterations). Railway's default request timeout is 60 s; lower the iteration count via a custom `AnnealConfig` if you hit it.
+- The agent's prompt and the DXF layer names are locked across SVG + DXF in `frontend/src/lib/render/layers.ts` and `backend/app/export/dxf_export.py`; keep them in sync if you ever rename a layer.
+
 ## Scope reminders
 
 - DXF only. No DWG.
