@@ -66,6 +66,7 @@ def build_floor_plan(
             program.circulation.entry_room_id,
             weights=DEFAULT_COST_WEIGHTS,
             config=config,
+            primary_entry_side=program.global_.primary_entry_side,
         )
     except InfeasibleLayout as e:
         raise ValueError(f"layout infeasible: {e}") from e

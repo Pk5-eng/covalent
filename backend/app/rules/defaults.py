@@ -101,6 +101,62 @@ def adjacency_weight(type_a: str, type_b: str) -> float:
     return ADJACENCY_WEIGHTS.get(key, 0.0)  # type: ignore[arg-type]
 
 
+# ---------- Open vs walled (great-room rules) ----------
+# When two adjacent rooms appear in OPEN_PAIRS, the finishing pass does NOT
+# build a wall between them. They read as a single continuous space — the
+# core of modern residential planning. Anything not in this set keeps its
+# walls (privacy, acoustic isolation, smell containment).
+OPEN_PAIRS: set[frozenset[str]] = {
+    frozenset({"kitchen", "dining_room"}),
+    frozenset({"kitchen", "living_room"}),
+    frozenset({"kitchen", "family_room"}),
+    frozenset({"dining_room", "living_room"}),
+    frozenset({"dining_room", "family_room"}),
+    frozenset({"living_room", "family_room"}),
+    frozenset({"foyer", "living_room"}),
+    frozenset({"foyer", "family_room"}),
+    frozenset({"gallery", "foyer"}),
+    frozenset({"gallery", "living_room"}),
+    frozenset({"gallery", "family_room"}),
+    frozenset({"gallery", "dining_room"}),
+    frozenset({"sunroom", "living_room"}),
+    frozenset({"sunroom", "family_room"}),
+}
+
+
+def are_open_pair(type_a: str, type_b: str) -> bool:
+    """True if these two room types should share an opening, not a wall."""
+    return frozenset({type_a, type_b}) in OPEN_PAIRS
+
+
+# ---------- Orientation preferences ----------
+# `primary_entry_side` (e.g. "south") is the side the front door is on.
+# These weights bias rooms toward or away from that side.
+ORIENTATION_PREFERENCE = {
+    # Public — sunlight + street presence
+    "living_room": "entry_side",
+    "family_room": "entry_side",
+    "dining_room": "entry_side",
+    "sunroom": "entry_side",
+    "foyer": "entry_side",
+    # Private — quiet + privacy from the street
+    "primary_bedroom": "opposite_entry",
+    "bedroom": "opposite_entry",
+    "kids_room": "opposite_entry",
+    "guest_room": "opposite_entry",
+    "nursery": "opposite_entry",
+    "study": "opposite_entry",
+    "library": "opposite_entry",
+    # Service — flexible, often utility corners
+    "garage_single": "side",
+    "garage_double": "side",
+}
+
+
+def opposite_side(side: str) -> str:
+    return {"north": "south", "south": "north", "east": "west", "west": "east"}.get(side, side)
+
+
 # ---------- Cost-function weights (Section 6.3) ----------
 
 @dataclass
@@ -114,6 +170,9 @@ class CostWeights:
     area_deviation: float = 1.0
     circulation: float = 2.0
     entry_position: float = 3.0   # entry must touch the boundary
+    orientation: float = 1.5      # public→entry side, private→opposite
+    privacy_buffer: float = 1.5   # bedrooms shouldn't touch public rooms
+    garage_corner: float = 1.0    # garage prefers a perimeter corner
     min_dim_violation: float = 5.0  # heavy: rooms must hit minimums
 
     # aspect ratio band: comfortable 1:1..1:1.8, hard discomfort past 1:2.5

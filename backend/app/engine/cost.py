@@ -24,10 +24,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import networkx as nx
-from shapely.geometry import Polygon, box
+from shapely.geometry import LineString, Polygon, box
 
 from app.engine.slicing import Rect
-from app.rules.defaults import CostWeights, DEFAULT_COST_WEIGHTS
+from app.rules.defaults import (
+    DEFAULT_COST_WEIGHTS,
+    CostWeights,
+    ORIENTATION_PREFERENCE,
+    opposite_side,
+)
 
 # Door-length threshold: a shared wall shorter than this can't accept a door.
 DOOR_THRESHOLD_MM = 900
@@ -44,6 +49,9 @@ class CostBreakdown:
     area_deviation: float = 0.0
     circulation: float = 0.0
     entry_position: float = 0.0
+    orientation: float = 0.0
+    privacy_buffer: float = 0.0
+    garage_corner: float = 0.0
     min_dim_violation: float = 0.0
 
     weighted_total: float = 0.0
@@ -58,6 +66,9 @@ class CostBreakdown:
             "area_deviation": self.area_deviation,
             "circulation": self.circulation,
             "entry_position": self.entry_position,
+            "orientation": self.orientation,
+            "privacy_buffer": self.privacy_buffer,
+            "garage_corner": self.garage_corner,
             "min_dim_violation": self.min_dim_violation,
             "weighted_total": self.weighted_total,
             "details": self.details,
@@ -71,6 +82,7 @@ def evaluate_cost(
     boundary_h: float,
     weights: CostWeights = DEFAULT_COST_WEIGHTS,
     entry_room_id: str | None = None,
+    primary_entry_side: str = "south",
 ) -> CostBreakdown:
     """Score a layout. All work is deterministic and operator-free here."""
     by_id = {r["id"]: r for r in program_rooms}
@@ -102,9 +114,22 @@ def evaluate_cost(
         by_id, shared, entry_room_id, b.details
     )
 
-    # entry-on-exterior + entry near the requested side
+    # entry-on-exterior
     b.entry_position = _entry_position_term(
         by_id, polys, boundary_w, boundary_h, entry_room_id, b.details
+    )
+
+    # orientation: public rooms toward entry side, private toward opposite
+    b.orientation = _orientation_term(
+        by_id, polys, boundary_w, boundary_h, primary_entry_side, b.details
+    )
+
+    # privacy buffer: bedrooms shouldn't open straight onto public rooms
+    b.privacy_buffer = _privacy_buffer_term(by_id, shared, b.details)
+
+    # garage prefers a perimeter corner, not the middle of the floor
+    b.garage_corner = _garage_corner_term(
+        by_id, polys, boundary_w, boundary_h, b.details
     )
 
     # minimum-dimension violations (mins came from spec; should never trigger
@@ -119,6 +144,9 @@ def evaluate_cost(
         + weights.area_deviation * b.area_deviation
         + weights.circulation * b.circulation
         + weights.entry_position * b.entry_position
+        + weights.orientation * b.orientation
+        + weights.privacy_buffer * b.privacy_buffer
+        + weights.garage_corner * b.garage_corner
         + weights.min_dim_violation * b.min_dim_violation
     )
     return b
@@ -358,6 +386,125 @@ def _entry_position_term(
     else:
         detail["status"] = "ok"
     details["entry_position"] = detail
+    return pen
+
+
+def _side_contact_length(poly: Polygon, side: str, w: float, h: float) -> float:
+    """How much of the room's boundary lies on the given side of the building."""
+    # The boundary side is a single LineString.
+    if side == "south":
+        # In screen coords y grows down; "south" = bottom = y=h.
+        line = LineString([(0, h), (w, h)])
+    elif side == "north":
+        line = LineString([(0, 0), (w, 0)])
+    elif side == "east":
+        line = LineString([(w, 0), (w, h)])
+    else:  # west
+        line = LineString([(0, 0), (0, h)])
+    contact = poly.boundary.intersection(line)
+    return float(getattr(contact, "length", 0.0))
+
+
+def _orientation_term(
+    by_id: dict[str, dict],
+    polys: dict[str, Polygon],
+    boundary_w: float,
+    boundary_h: float,
+    primary_entry_side: str,
+    details: dict,
+) -> float:
+    """Public rooms want the entry side (street + sun); private rooms the opposite.
+
+    The penalty is the missed opportunity: a room that prefers a side and
+    has zero contact pays 1.0; a room that has a long contact on the
+    preferred side pays nothing. The annealer will pivot the layout to
+    line preferences up.
+    """
+    opp = opposite_side(primary_entry_side)
+    pen = 0.0
+    detail: dict = {}
+    for rid, r in by_id.items():
+        pref = ORIENTATION_PREFERENCE.get(r["type"])
+        if pref is None:
+            continue
+        if pref == "entry_side":
+            want = primary_entry_side
+        elif pref == "opposite_entry":
+            want = opp
+        else:
+            # "side" — give east or west, whichever is longer
+            east_contact = _side_contact_length(polys[rid], "east", boundary_w, boundary_h)
+            west_contact = _side_contact_length(polys[rid], "west", boundary_w, boundary_h)
+            best = max(east_contact, west_contact)
+            if best < 500:
+                pen += 0.5
+                detail[rid] = {"pref": "side", "contact_mm": best}
+            continue
+        contact = _side_contact_length(polys[rid], want, boundary_w, boundary_h)
+        # Normalize: target = 2 m of contact = no penalty.
+        if contact < 2000:
+            shortfall = (2000 - contact) / 2000
+            pen += shortfall
+            detail[rid] = {"pref": want, "contact_mm": contact}
+    details["orientation"] = detail
+    return pen
+
+
+def _privacy_buffer_term(
+    by_id: dict[str, dict],
+    shared: dict[tuple[str, str], float],
+    details: dict,
+) -> float:
+    """Bedrooms / bathrooms should not share a long open wall with public rooms.
+
+    Penalizes shared-wall length between a private/service room and a
+    public room, except when one of them is circulation (gallery/foyer)
+    which is the architectural buffer.
+    """
+    pen = 0.0
+    violators = []
+    for (a, b), length in shared.items():
+        if length < 500:
+            continue
+        za = by_id.get(a, {}).get("zone", "")
+        zb = by_id.get(b, {}).get("zone", "")
+        ta = by_id.get(a, {}).get("type", "")
+        tb = by_id.get(b, {}).get("type", "")
+        if "circulation" in (za, zb):
+            continue  # gallery/hall buffers are fine
+        if {za, zb} == {"private", "public"}:
+            # tolerate short shared edge but penalize long ones
+            extra = max(0.0, length - 1000) / 5000
+            pen += extra
+            if extra > 0:
+                violators.append({"pair": [a, b], "shared_mm": length, "types": [ta, tb]})
+    details["privacy_buffer"] = violators
+    return pen
+
+
+def _garage_corner_term(
+    by_id: dict[str, dict],
+    polys: dict[str, Polygon],
+    boundary_w: float,
+    boundary_h: float,
+    details: dict,
+) -> float:
+    """Garage should sit at a perimeter corner (two-side contact)."""
+    pen = 0.0
+    detail = {}
+    for rid, r in by_id.items():
+        if not r["type"].startswith("garage"):
+            continue
+        sides = sum(
+            1 for s in ("north", "south", "east", "west")
+            if _side_contact_length(polys[rid], s, boundary_w, boundary_h) > 1000
+        )
+        # Reward 2+ sides (corner), penalize 0 (interior) or 1 (mid-edge).
+        if sides >= 2:
+            continue
+        pen += 2 - sides
+        detail[rid] = {"sides_on_boundary": sides}
+    details["garage_corner"] = detail
     return pen
 
 

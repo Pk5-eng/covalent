@@ -177,6 +177,7 @@ def _cost_of(
     program_rooms: list[dict],
     entry_room_id: str | None,
     weights: CostWeights,
+    primary_entry_side: str = "south",
 ) -> tuple[float, dict, CostBreakdown] | None:
     """Return (cost, rects, breakdown) for `expr`, or None if infeasible."""
     if not is_feasible(expr, boundary_w, boundary_h, leaf_specs):
@@ -192,6 +193,7 @@ def _cost_of(
         boundary_h,
         weights=weights,
         entry_room_id=entry_room_id,
+        primary_entry_side=primary_entry_side,
     )
     return breakdown.weighted_total, rects, breakdown
 
@@ -207,6 +209,7 @@ def _estimate_start_temp(
     entry_room_id: str | None,
     weights: CostWeights,
     samples: int,
+    primary_entry_side: str = "south",
 ) -> float:
     """Average |delta| of accepted-or-not random moves."""
     deltas: list[float] = []
@@ -222,6 +225,7 @@ def _estimate_start_temp(
             program_rooms,
             entry_room_id,
             weights,
+            primary_entry_side=primary_entry_side,
         )
         if result is None:
             continue
@@ -243,6 +247,7 @@ def anneal(
     *,
     weights: CostWeights = DEFAULT_COST_WEIGHTS,
     config: AnnealConfig | None = None,
+    primary_entry_side: str = "south",
 ) -> AnnealResult:
     """Run simulated annealing on the slicing tree.
 
@@ -270,7 +275,8 @@ def anneal(
             continue
 
         baseline = _cost_of(
-            expr, boundary_w, boundary_h, leaf_specs, program_rooms, entry_room_id, weights
+            expr, boundary_w, boundary_h, leaf_specs, program_rooms, entry_room_id, weights,
+            primary_entry_side=primary_entry_side,
         )
         assert baseline is not None
         cost, rects, breakdown = baseline
@@ -278,6 +284,7 @@ def anneal(
         temp = _estimate_start_temp(
             expr, rng, cost, boundary_w, boundary_h, leaf_specs,
             program_rooms, entry_room_id, weights, cfg.start_temp_samples,
+            primary_entry_side=primary_entry_side,
         )
 
         best_expr = expr
@@ -295,6 +302,7 @@ def anneal(
             result = _cost_of(
                 candidate, boundary_w, boundary_h, leaf_specs,
                 program_rooms, entry_room_id, weights,
+                primary_entry_side=primary_entry_side,
             )
             if result is None:
                 temp *= cfg.cool_factor

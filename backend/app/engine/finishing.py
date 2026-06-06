@@ -20,12 +20,13 @@ from app.engine.slicing import Rect
 from app.engine.validate import validate_floor_plan
 from app.models import Boundary, FloorPlan, Opening, PlanMeta, Room, Wall
 from app.rules.defaults import (
+    CATALOG_BY_TYPE,
     CORRIDOR_MIN_WIDTH_MM,
     DOOR_WIDTHS_MM,
     EXTERIOR_WALL_MM,
     GRID_MM,
     INTERIOR_WALL_MM,
-    CATALOG_BY_TYPE,
+    are_open_pair,
 )
 
 # Wall-axis tolerance (mm) when treating two edges as collinear.
@@ -190,6 +191,15 @@ def build_walls_and_openings(
                 seen_pairs.add((e1.room_id, e2.room_id, lo, hi, axis))
                 seen_pairs.add((e2.room_id, e1.room_id, lo, hi, axis))
 
+                # Open-pair rule: kitchen/dining/living/family/foyer/gallery
+                # flow as one space — no wall, no door, just continuous floor.
+                # Privacy-critical rooms (bedrooms, bathrooms, study, etc.)
+                # still get walled normally.
+                type_a = program_by_id.get(e1.room_id, {}).get("type", "")
+                type_b = program_by_id.get(e2.room_id, {}).get("type", "")
+                if are_open_pair(type_a, type_b):
+                    continue
+
                 if axis == "h":
                     a = (lo, const)
                     b = (hi, const)
@@ -220,11 +230,179 @@ def build_walls_and_openings(
                         opening_id_counter += 1
                         openings.append(door)
 
+    # Ensure every walled room can be entered: if a room has no door, find
+    # the best shared wall (preferring circulation > public > service) and
+    # place one. Private-private walls (bedroom-bedroom) are last resort.
+    openings = _ensure_room_reachability(
+        rects, program_by_id, walls, openings, opening_id_counter
+    )
+    opening_id_counter = max((int(o.id[1:]) for o in openings if o.id.startswith("d")), default=0)
+
     # Windows on exterior walls for rooms needing daylight.
     windows = _place_windows(rects, program_by_id, walls, boundary_w, boundary_h, opening_id_counter)
     openings.extend(windows)
 
     return walls, openings
+
+
+def _ensure_room_reachability(
+    rects: dict[str, Rect],
+    program_by_id: dict[str, dict],
+    walls: list[Wall],
+    openings: list[Opening],
+    base_door_id: int,
+) -> list[Opening]:
+    """Make sure every walled room can be entered (has at least one door or
+    is open-pair connected to another room).
+    """
+    # Track which rooms each door connects.
+    walls_by_id = {w.id: w for w in walls}
+    door_rooms: dict[str, set[str]] = {rid: set() for rid in rects}
+    for op in openings:
+        if op.kind != "door":
+            continue
+        wall = walls_by_id.get(op.wall_id)
+        if wall is None:
+            continue
+        # Which two rooms does this wall separate? Find by edge match.
+        for rid, rect in rects.items():
+            if _wall_lies_on_room_edge(wall, rect):
+                door_rooms[rid].add(op.id)
+
+    # Open-pair connectivity: any two rooms that share an edge but no wall
+    # between them are effectively connected.
+    open_neighbors: dict[str, set[str]] = {rid: set() for rid in rects}
+    rids = list(rects.keys())
+    for i in range(len(rids)):
+        for j in range(i + 1, len(rids)):
+            a, b = rids[i], rids[j]
+            shared_len = _shared_edge_length_rects(rects[a], rects[b])
+            if shared_len <= 0:
+                continue
+            # Are they open-pair AND have no wall between them?
+            ta = program_by_id.get(a, {}).get("type", "")
+            tb = program_by_id.get(b, {}).get("type", "")
+            if are_open_pair(ta, tb):
+                open_neighbors[a].add(b)
+                open_neighbors[b].add(a)
+
+    # For each room with no door AND no open neighbor, place a door.
+    next_id = base_door_id + 1
+    for rid in rids:
+        if door_rooms[rid]:
+            continue
+        if open_neighbors[rid]:
+            continue
+        # Find best shared wall.
+        best_wall = _pick_door_wall(rid, rects, program_by_id, walls)
+        if best_wall is None:
+            continue
+        other_id = _other_room_on_wall(best_wall, rid, rects)
+        other_type = program_by_id.get(other_id, {}).get("type", "") if other_id else ""
+        my_type = program_by_id.get(rid, {}).get("type", "")
+        bathroom_types = {"full_bath", "powder"}
+        if my_type in bathroom_types or other_type in bathroom_types:
+            width = DOOR_WIDTHS_MM["bathroom"]
+        else:
+            width = DOOR_WIDTHS_MM["internal"]
+        wall_len = _length_xy(best_wall.a, best_wall.b)
+        if wall_len < width + 200:
+            continue
+        openings.append(
+            Opening(
+                id=f"d{next_id}",
+                kind="door",
+                wall_id=best_wall.id,
+                position=0.5,
+                width_mm=width,
+                swing="in_left",
+            )
+        )
+        door_rooms[rid].add(f"d{next_id}")
+        if other_id:
+            door_rooms[other_id].add(f"d{next_id}")
+        next_id += 1
+
+    return openings
+
+
+def _wall_lies_on_room_edge(wall: Wall, rect: Rect) -> bool:
+    """True if `wall`'s segment coincides with one edge of `rect`."""
+    (ax, ay), (bx, by) = wall.a, wall.b
+    rx, ry, rw, rh = rect.x, rect.y, rect.w, rect.h
+    if abs(ay - by) < COLLINEAR_TOL:  # horizontal wall
+        if abs(ay - ry) > COLLINEAR_TOL and abs(ay - (ry + rh)) > COLLINEAR_TOL:
+            return False
+        lo, hi = min(ax, bx), max(ax, bx)
+        return lo >= rx - COLLINEAR_TOL and hi <= rx + rw + COLLINEAR_TOL
+    # vertical
+    if abs(ax - rx) > COLLINEAR_TOL and abs(ax - (rx + rw)) > COLLINEAR_TOL:
+        return False
+    lo, hi = min(ay, by), max(ay, by)
+    return lo >= ry - COLLINEAR_TOL and hi <= ry + rh + COLLINEAR_TOL
+
+
+def _shared_edge_length_rects(a: Rect, b: Rect) -> float:
+    """Length of shared edge between two axis-aligned rects."""
+    # Vertical line shared?
+    if abs((a.x + a.w) - b.x) < COLLINEAR_TOL or abs((b.x + b.w) - a.x) < COLLINEAR_TOL:
+        lo = max(a.y, b.y)
+        hi = min(a.y + a.h, b.y + b.h)
+        return max(0.0, hi - lo)
+    # Horizontal line shared?
+    if abs((a.y + a.h) - b.y) < COLLINEAR_TOL or abs((b.y + b.h) - a.y) < COLLINEAR_TOL:
+        lo = max(a.x, b.x)
+        hi = min(a.x + a.w, b.x + b.w)
+        return max(0.0, hi - lo)
+    return 0.0
+
+
+def _pick_door_wall(
+    room_id: str,
+    rects: dict[str, Rect],
+    program_by_id: dict[str, dict],
+    walls: list[Wall],
+) -> Wall | None:
+    """Pick the best interior wall to door from `room_id`.
+
+    Preference: circulation > public > service > private. Among ties,
+    longest wall wins.
+    """
+    if room_id not in rects:
+        return None
+    rect = rects[room_id]
+    zone_score = {"circulation": 4, "public": 3, "service": 2, "private": 1, "exterior": 0}
+    best = None
+    best_score = (-1, -1.0)
+    for w in walls:
+        if w.type != "interior":
+            continue
+        if not _wall_lies_on_room_edge(w, rect):
+            continue
+        other = _other_room_on_wall(w, room_id, rects)
+        if other is None:
+            continue
+        other_zone = program_by_id.get(other, {}).get("zone", "")
+        zs = zone_score.get(other_zone, 0)
+        length = _length_xy(w.a, w.b)
+        score = (zs, length)
+        if score > best_score:
+            best = w
+            best_score = score
+    return best
+
+
+def _other_room_on_wall(wall: Wall, room_id: str, rects: dict[str, Rect]) -> str | None:
+    for rid, rect in rects.items():
+        if rid == room_id:
+            continue
+        if _wall_lies_on_room_edge(wall, rect):
+            return rid
+    return None
+
+
+def _length_xy(a: tuple[float, float], b: tuple[float, float]) -> float:
+    return ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5
 
 
 def _wants_door(
